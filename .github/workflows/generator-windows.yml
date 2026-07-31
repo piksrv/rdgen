@@ -607,6 +607,25 @@ jobs:
           cp "rustdesk/${{ env.appname }}.exe" "rustdesk/${myappname}.exe" -ErrorAction SilentlyContinue
           pushd ./res/msi
           python preprocess.py --app-name "$myappname" --arp -d ../../rustdesk
+
+          Write-Host "=== MSI DIRECTORY STRUCTURE ==="
+          Get-ChildItem -Path . -Recurse -File |
+            Where-Object {
+              $_.Extension -in ".wxs", ".wxi", ".wxl", ".py", ".sln", ".wixproj"
+            } |
+            Select-Object FullName
+
+          Write-Host "=== SERVICE REFERENCES IN MSI SOURCES ==="
+          Get-ChildItem -Path . -Recurse -File |
+            Where-Object {
+              $_.Extension -in ".wxs", ".wxi", ".py"
+            } |
+            ForEach-Object {
+              Select-String -Path $_.FullName `
+                -Pattern "ServiceInstall|ServiceControl|--service|InstallExecuteSequence|CustomAction" `
+                -SimpleMatch:$false
+            }
+
           nuget restore msi.sln
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
           cp ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-latest.msi
