@@ -578,7 +578,7 @@ jobs:
           curl --fail --show-error --silent --max-time 900 \
             -X POST -F "file=@./rustdesk/unsigned_files.zip" \
             -H "X-API-KEY: $SIGN_API_KEY" \
-            "$SIGN_BASE_URL/sign/" -o ./rustdesk/signed_files.zip
+            "${SIGN_BASE_URL%/}/sign/" -o ./rustdesk/signed_files.zip
       - name: unzip dlls
         shell: pwsh
         run: |
@@ -678,7 +678,7 @@ jobs:
           curl --fail --show-error --silent --max-time 900 \
             -X POST -F "file=@./SignOutput/unsigned_files.zip" \
             -H "X-API-KEY: $SIGN_API_KEY" \
-            "$SIGN_BASE_URL/sign/" -o ./SignOutput/signed_files.zip
+            "${SIGN_BASE_URL%/}/sign/" -o ./SignOutput/signed_files.zip
       - name: unzip exe and msi
         shell: pwsh
         run: |
@@ -712,15 +712,17 @@ jobs:
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl --fail --show-error --silent -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl --fail --show-error --silent -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+          set -euo pipefail
+          curl --fail --show-error --silent -X POST -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+          curl --fail --show-error --silent -X POST -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
         shell: bash
         run: |
-          curl --fail --show-error --silent -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" ${{ env.apiServer }}/api/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" ${{ env.apiServer }}/api/save_custom_client 
+          set -euo pipefail
+          curl --fail --show-error --silent -X POST -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" ${{ env.apiServer }}/api/save_custom_client
+          curl -i -X POST -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" ${{ env.apiServer }}/api/save_custom_client 
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
