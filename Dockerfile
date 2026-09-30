@@ -13,6 +13,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget --spider 0.0.0.0:8000
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget --spider http://127.0.0.1:8000
 
 CMD ["/home/user/.local/bin/gunicorn", "-c", "gunicorn.conf.py", "rdgen.wsgi:application"]
