@@ -566,7 +566,7 @@ jobs:
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
           try {
             $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
-              Where-Object FullName -match '\x64\' | Sort-Object FullName -Descending | Select-Object -First 1
+              Where-Object FullName -like '*\x64\*' | Sort-Object FullName -Descending | Select-Object -First 1
             if (-not $signtool) { throw "signtool.exe not found" }
             $files = @(Get-ChildItem ./rustdesk/*.dll, ./rustdesk/*.exe -File -ErrorAction SilentlyContinue |
               Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' }).FullName
@@ -688,7 +688,7 @@ jobs:
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
           try {
             $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
-              Where-Object FullName -match '\x64\' | Sort-Object FullName -Descending | Select-Object -First 1
+              Where-Object FullName -like '*\x64\*' | Sort-Object FullName -Descending | Select-Object -First 1
             if (-not $signtool) { throw "signtool.exe not found" }
             $files = @(Get-ChildItem ./SignOutput/*.exe, ./SignOutput/*.msi -File -ErrorAction SilentlyContinue |
               Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' }).FullName
