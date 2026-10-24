@@ -38,6 +38,8 @@ env:
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: 'true'
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}"
+  SIGN_API_KEY: "${{ secrets.SIGN_API_KEY }}"
+  WINDOWS_SIGNING_CERT_THUMBPRINT: "${{ secrets.WINDOWS_SIGNING_CERT_THUMBPRINT }}"
   STATUS_URL: "${{ secrets.GENURL }}/updategh"
 
 
@@ -76,6 +78,17 @@ jobs:
             }
           # - { target: aarch64-pc-windows-msvc, os: windows-2022, arch: aarch64 }
     steps:
+
+      - name: Require trusted Windows signing configuration
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGN_BASE_URL) -or [string]::IsNullOrWhiteSpace($env:SIGN_API_KEY)) {
+            throw "Windows signing service is not configured; unsigned builds are blocked."
+          }
+          if ($env:WINDOWS_SIGNING_CERT_THUMBPRINT -notmatch "^[0-9A-Fa-f]{40}$") {
+            throw "Set WINDOWS_SIGNING_CERT_THUMBPRINT to the approved SHA-1 certificate thumbprint."
+          }
+
       - name: install python deps
         run: |
           pip install requests pyzipper
@@ -551,32 +564,42 @@ jobs:
           data: '{"uuid": "${{ env.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient."}'
       
       - name: zip dlls
-        continue-on-error: true
         shell: pwsh
         run: |
           Compress-Archive -Path ./rustdesk/*.dll, ./rustdesk/*.exe -DestinationPath ./rustdesk/unsigned_files.zip -CompressionLevel Fastest
 
       - name: sign dlls
-        continue-on-error: true
         shell: bash
+        env:
+          SIGN_BASE_URL: ${{ secrets.SIGN_BASE_URL }}
+          SIGN_API_KEY: ${{ secrets.SIGN_API_KEY }}
         run: |
-          if [ ! -z "${{ secrets.SIGN_BASE_URL }}" ] && [ ! -z "${{ secrets.SIGN_API_KEY }}" ]; then
-            curl -X POST -F "file=@./rustdesk/unsigned_files.zip" \
-              -H "X-API-KEY: ${{ secrets.SIGN_API_KEY }}" \
-              -m 900 \
-              "${{ secrets.SIGN_BASE_URL }}/sign/" -o ./rustdesk/signed_files.zip
-          else
-            echo "Signing skipped - signing URL or API key not configured"
-            cp ./rustdesk/unsigned_files.zip ./rustdesk/signed_files.zip
-          fi
-
+          set -euo pipefail
+          curl --fail --show-error --silent --max-time 900 \
+            -X POST -F "file=@./rustdesk/unsigned_files.zip" \
+            -H "X-API-KEY: $SIGN_API_KEY" \
+            "${SIGN_BASE_URL%/}/sign/" -o ./rustdesk/signed_files.zip
       - name: unzip dlls
-        continue-on-error: true
         shell: pwsh
         run: |
           Expand-Archive -Path ./rustdesk/signed_files.zip -DestinationPath ./rustdesk/ -Force
           Remove-Item ./rustdesk/unsigned_files.zip
           Remove-Item ./rustdesk/signed_files.zip
+
+      - name: Verify signed runtime binaries
+        shell: pwsh
+        run: |
+          $expected = ($env:WINDOWS_SIGNING_CERT_THUMBPRINT -replace "\s", "").ToUpperInvariant()
+          $files = @(Get-ChildItem -Path ./rustdesk -File | Where-Object { $_.Extension -in ".exe", ".dll" })
+          if ($files.Count -eq 0) { throw "No runtime binaries were found for signature verification." }
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
+                $null -eq $signature.SignerCertificate -or
+                $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne $expected) {
+              throw "Runtime binary signature is invalid or from an unapproved publisher: $($file.Name)"
+            }
+          }
 
       - name: Create custom.txt file
         shell: bash
@@ -600,7 +623,6 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Build msi
-        continue-on-error: true
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           $myappname = "${{ env.appname }}" -replace '\s','_'
@@ -642,27 +664,22 @@ jobs:
           data: '{"uuid": "${{ env.uuid }}", "status": "85% complete"}'
 
       - name: zip exe and msi
-        continue-on-error: true
         shell: pwsh
         run: |
           Compress-Archive -Path ./SignOutput/*.exe, ./SignOutput/*.msi -DestinationPath ./SignOutput/unsigned_files.zip -CompressionLevel Fastest
 
       - name: sign exe and msi
-        continue-on-error: true
         shell: bash
+        env:
+          SIGN_BASE_URL: ${{ secrets.SIGN_BASE_URL }}
+          SIGN_API_KEY: ${{ secrets.SIGN_API_KEY }}
         run: |
-          if [ ! -z "${{ secrets.SIGN_BASE_URL }}" ] && [ ! -z "${{ secrets.SIGN_API_KEY }}" ]; then
-            curl -X POST -F "file=@./SignOutput/unsigned_files.zip" \
-              -H "X-API-KEY: ${{ secrets.SIGN_API_KEY }}" \
-              -m 900 \
-              "${{ secrets.SIGN_BASE_URL }}/sign/" -o ./SignOutput/signed_files.zip
-          else
-            echo "Signing skipped - signing URL or API key not configured"
-            cp ./SignOutput/unsigned_files.zip ./SignOutput/signed_files.zip
-          fi
-
+          set -euo pipefail
+          curl --fail --show-error --silent --max-time 900 \
+            -X POST -F "file=@./SignOutput/unsigned_files.zip" \
+            -H "X-API-KEY: $SIGN_API_KEY" \
+            "${SIGN_BASE_URL%/}/sign/" -o ./SignOutput/signed_files.zip
       - name: unzip exe and msi
-        continue-on-error: true
         shell: pwsh
         run: |
           Expand-Archive -Path ./SignOutput/signed_files.zip -DestinationPath ./SignOutput/ -Force
@@ -671,26 +688,41 @@ jobs:
 
       - name: rename rustdesk.exe to filename.exe
         run: |
-          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ env.filename }}.exe" || echo "rustdesk"
+          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ env.filename }}.exe"
 
       - name: rename rustdesk.msi to filename.msi
-        continue-on-error: true
         run: |
-          mv ./SignOutput/rustdesk.msi "./SignOutput/${{ env.filename }}.msi" || echo "rustdesk"
+          mv ./SignOutput/rustdesk.msi "./SignOutput/${{ env.filename }}.msi"
+
+      - name: Verify release package signatures
+        shell: pwsh
+        run: |
+          $expected = ($env:WINDOWS_SIGNING_CERT_THUMBPRINT -replace "\s", "").ToUpperInvariant()
+          foreach ($path in @("./SignOutput/$($env:filename).exe", "./SignOutput/$($env:filename).msi")) {
+            if (-not (Test-Path $path)) { throw "Required signed package is missing: $path" }
+            $signature = Get-AuthenticodeSignature -FilePath $path
+            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
+                $null -eq $signature.SignerCertificate -or
+                $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne $expected) {
+              throw "Release signature is invalid or from an unapproved publisher: $path"
+            }
+          }
 
       - name: send file to rdgen server
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+          set -euo pipefail
+          curl --fail --show-error --silent -X POST -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+          curl --fail --show-error --silent -X POST -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" ${{ env.apiServer }}/api/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" ${{ env.apiServer }}/api/save_custom_client || true
+          set -euo pipefail
+          curl --fail --show-error --silent -X POST -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" ${{ env.apiServer }}/api/save_custom_client
+          curl -i -X POST -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" ${{ env.apiServer }}/api/save_custom_client 
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
