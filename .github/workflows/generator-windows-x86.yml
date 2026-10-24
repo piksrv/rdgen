@@ -389,6 +389,37 @@ jobs:
           customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient."}'
       
+      # Audit #334 P06: without a signing service, sign with the PIKSRV self-signed code-signing
+      # certificate (owner decision 24.10.2026, until a purchased certificate exists).
+      # Only files without a valid signature are signed; an RFC 3161 timestamp keeps the
+      # signature valid after the certificate expires.
+      - name: self-sign dlls
+        if: ${{ env.SIGN_BASE_URL == '' }}
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.SELF_SIGN_PFX_B64 }}
+          PFX_PASS: ${{ secrets.SELF_SIGN_PFX_PASSWORD }}
+        run: |
+          if (-not $env:PFX_B64) { Write-Host "self-sign skipped: SELF_SIGN_PFX_B64 is not set"; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP "pikadm-codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
+          try {
+            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+              Where-Object FullName -match '\x64\' | Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $signtool) { throw "signtool.exe not found" }
+            $files = @(Get-ChildItem ./Release/*.dll, ./Release/*.exe -File -ErrorAction SilentlyContinue |
+              Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' }).FullName
+            if (-not $files) { Write-Host "self-sign: nothing to sign"; exit 0 }
+            $signed = $false
+            foreach ($tsa in 'http://timestamp.digicert.com', 'http://timestamp.sectigo.com', 'http://timestamp.globalsign.com/tsa/r6advanced1') {
+              & $signtool.FullName sign /fd sha256 /f $pfx /p $env:PFX_PASS /tr $tsa /td sha256 $files
+              if ($LASTEXITCODE -eq 0) { $signed = $true; break }
+              Write-Host "self-sign: timestamp server $tsa failed, trying the next one"
+            }
+            if (-not $signed) { throw "self-sign failed for every timestamp server" }
+            foreach ($f in $files) { $s = Get-AuthenticodeSignature $f; Write-Host "self-signed $(Split-Path $f -Leaf): $($s.Status) $($s.SignerCertificate.Subject)" }
+          } finally { Remove-Item $pfx -Force -ErrorAction SilentlyContinue }
+
       - name: zip dlls
         continue-on-error: true
         shell: pwsh
@@ -442,6 +473,37 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "85% complete"}'
+
+      # Audit #334 P06: without a signing service, sign with the PIKSRV self-signed code-signing
+      # certificate (owner decision 24.10.2026, until a purchased certificate exists).
+      # Only files without a valid signature are signed; an RFC 3161 timestamp keeps the
+      # signature valid after the certificate expires.
+      - name: self-sign exe
+        if: ${{ env.SIGN_BASE_URL == '' }}
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.SELF_SIGN_PFX_B64 }}
+          PFX_PASS: ${{ secrets.SELF_SIGN_PFX_PASSWORD }}
+        run: |
+          if (-not $env:PFX_B64) { Write-Host "self-sign skipped: SELF_SIGN_PFX_B64 is not set"; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP "pikadm-codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
+          try {
+            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+              Where-Object FullName -match '\x64\' | Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $signtool) { throw "signtool.exe not found" }
+            $files = @(Get-ChildItem ./SignOutput/*.exe -File -ErrorAction SilentlyContinue |
+              Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' }).FullName
+            if (-not $files) { Write-Host "self-sign: nothing to sign"; exit 0 }
+            $signed = $false
+            foreach ($tsa in 'http://timestamp.digicert.com', 'http://timestamp.sectigo.com', 'http://timestamp.globalsign.com/tsa/r6advanced1') {
+              & $signtool.FullName sign /fd sha256 /f $pfx /p $env:PFX_PASS /tr $tsa /td sha256 $files
+              if ($LASTEXITCODE -eq 0) { $signed = $true; break }
+              Write-Host "self-sign: timestamp server $tsa failed, trying the next one"
+            }
+            if (-not $signed) { throw "self-sign failed for every timestamp server" }
+            foreach ($f in $files) { $s = Get-AuthenticodeSignature $f; Write-Host "self-signed $(Split-Path $f -Leaf): $($s.Status) $($s.SignerCertificate.Subject)" }
+          } finally { Remove-Item $pfx -Force -ErrorAction SilentlyContinue }
 
       - name: zip exe
         continue-on-error: true
