@@ -69,7 +69,7 @@ jobs:
               vcpkg-triplet: arm64-osx,
             }
     env:
-      STATUS_URL: "${{ secrets.GENURL }}/updategh"
+      STATUS_URL: "${{ fromJson(inputs.zip_url).url }}/updategh"
 
     steps:
       - name: install python deps
@@ -106,7 +106,7 @@ jobs:
 
             rdgen_value = str(secrets.get('rdgen', 'false')).lower()    
             if rdgen_value == "true":
-              status_url = "${{ secrets.GENURL }}/updategh"
+              status_url = "${{ fromJson(inputs.zip_url).url }}/updategh"
             else:
               status_url = f"{api_server}/api/updategh"
             env_file.write(f"STATUS_URL={status_url}\n")
@@ -119,7 +119,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}"}'
 
       - name: Export GitHub Actions cache environment variables
@@ -134,7 +134,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "5% complete"}'
 
       - name: Checkout source code
@@ -253,7 +253,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "10% complete"}'   
           
       - name: Install build runtime
@@ -494,7 +494,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "20% complete"}'
 
       - name: Restore bridge files
@@ -530,7 +530,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "25% complete"}'
 
       - name: Create MacOS directory structure
@@ -558,7 +558,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "50% complete, this step takes about 5 minutes, be patient."}'
       
       - name: Install rcodesign tool
@@ -586,7 +586,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient."}'
   
       - name: Show version information (Rust, cargo, Clang)
@@ -635,7 +635,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "85% complete"}'
 
       - name: Sign macOS app bundle
@@ -747,19 +747,19 @@ jobs:
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST \
+          curl -i --fail-with-body -X POST \
             -H "Content-Type: multipart/form-data" \
             -H "Authorization: Bearer ${{ env.token }}" \
             -F "file=@$GITHUB_WORKSPACE/${{ env.filename }}-${{ matrix.job.arch }}.dmg" \
             -F "uuid=${{ env.uuid }}" \
-            "${{ secrets.GENURL }}/save_custom_client"
+            "${{ fromJson(inputs.zip_url).url }}/save_custom_client"
         
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
         shell: bash
         run: |
-          curl -i -X POST \
+          curl -i --fail-with-body -X POST \
             -H "Content-Type: multipart/form-data" \
             -H "Authorization: Bearer ${{ env.token }}" \
             -F "file=@$GITHUB_WORKSPACE/${{ env.filename }}-${{ matrix.job.arch }}.dmg" \
@@ -770,7 +770,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Success"}'
 
       - name: failed
@@ -779,7 +779,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation failed, try again"}'
 
       - name: failed
@@ -788,5 +788,5 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation cancelled, try again"}'

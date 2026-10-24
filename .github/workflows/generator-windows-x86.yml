@@ -42,7 +42,7 @@ env:
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: 'true'
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}"
-  STATUS_URL: "${{ secrets.GENURL }}/updategh"
+  STATUS_URL: "${{ fromJson(inputs.zip_url).url }}/updategh"
 
 jobs:
   build-for-windows-sciter:
@@ -105,7 +105,7 @@ jobs:
       - name: Set rdgen value
         if: ${{ env.rdgen == 'true' }}
         run: |
-          echo "STATUS_URL=${{ secrets.GENURL }}/updategh" >> $env:GITHUB_ENV
+          echo "STATUS_URL=${{ fromJson(inputs.zip_url).url }}/updategh" >> $env:GITHUB_ENV
 
       - name: Set rdgen value
         if: ${{ env.rdgen == 'false' }}
@@ -118,7 +118,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "5% complete"}'
 
       - name: Checkout source code
@@ -234,7 +234,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "10% complete"}'
 
       - name: Install Rust toolchain
@@ -254,7 +254,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "20% complete"}'
 
       - name: Setup vcpkg with Github Actions binary cache
@@ -341,7 +341,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "50% complete, this step takes about 5 minutes, be patient."}'
 
       - name: Build rustdesk
@@ -386,7 +386,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient."}'
       
       - name: zip dlls
@@ -440,7 +440,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "85% complete"}'
 
       - name: zip exe
@@ -479,20 +479,53 @@ jobs:
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" -F "uuid=${{ env.uuid }}" ${{ fromJson(inputs.zip_url).url }}/save_custom_client
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" ${{ env.apiServer }}/api/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" ${{ env.apiServer }}/api/save_custom_client
+
+      # Audit #334 P06: check the delivered file the way a Windows host sees it (Authenticode)
+      # and prove it installs and uninstalls on a clean x64 host (x86 build under WOW64).
+      # Runs after delivery and does not block it; the result is in this step's log.
+      - name: verify signature and install smoke
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path "./SignOutput/${{ env.filename }}.exe").Path
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          $sig = Get-AuthenticodeSignature $exe
+          Write-Host "artifact sha256=$hash size=$((Get-Item $exe).Length)"
+          Write-Host "authenticode status=$($sig.Status) signer=$($sig.SignerCertificate.Subject) timestamp=$($sig.TimeStamperCertificate.Subject)"
+          $app = "${{ env.appname }}"
+          $before = @(Get-Service | Where-Object { $_.Name -like "*$app*" -or $_.DisplayName -like "*$app*" }).Name
+          Start-Process $exe -ArgumentList '--silent-install' -Wait:$false
+          $svc = $null
+          for ($i = 0; $i -lt 60 -and -not $svc; $i++) {
+            Start-Sleep 5
+            $svc = Get-Service | Where-Object { ($_.Name -like "*$app*" -or $_.DisplayName -like "*$app*") -and $_.Name -notin $before } | Select-Object -First 1
+          }
+          if (-not $svc) { throw "install smoke: no '$app' service appeared within 300 s" }
+          Start-Sleep 10
+          $svc.Refresh()
+          Write-Host "install smoke: service $($svc.Name) status=$($svc.Status)"
+          $installed = Get-ChildItem "$env:ProgramFiles", "${env:ProgramFiles(x86)}" -Filter "$app.exe" -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $installed) { throw "install smoke: $app.exe not found under Program Files" }
+          $isig = Get-AuthenticodeSignature $installed.FullName
+          Write-Host "install smoke: installed $($installed.FullName) authenticode=$($isig.Status)"
+          Start-Process $installed.FullName -ArgumentList '--uninstall' -Wait:$false
+          for ($i = 0; $i -lt 36 -and (Get-Service -Name $svc.Name -ErrorAction SilentlyContinue); $i++) { Start-Sleep 5 }
+          if (Get-Service -Name $svc.Name -ErrorAction SilentlyContinue) { throw "install smoke: service $($svc.Name) still present after --uninstall" }
+          Write-Host "install smoke: PASS (installed, service started, uninstalled)"
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Success"}'
 
       - name: failed
@@ -501,7 +534,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation failed, try again"}'
 
       - name: failed
@@ -510,5 +543,5 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation cancelled, try again"}'
