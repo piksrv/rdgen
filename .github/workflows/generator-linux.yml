@@ -38,7 +38,7 @@ env:
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: 'true'
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}"
-  STATUS_URL: "${{ secrets.GENURL }}/updategh"
+  STATUS_URL: "${{ fromJson(inputs.zip_url).url }}/updategh"
 
 jobs:
   generate-bridge-linux:
@@ -124,7 +124,7 @@ jobs:
       - name: Set rdgen value
         if: ${{ env.rdgen == 'true' }}
         run: |
-          echo "STATUS_URL=${{ secrets.GENURL }}/updategh" >> $GITHUB_ENV
+          echo "STATUS_URL=${{ fromJson(inputs.zip_url).url }}/updategh" >> $GITHUB_ENV
 
       - name: Set rdgen value
         if: ${{ env.rdgen == 'false' }}
@@ -137,7 +137,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "5% complete"}'
 
       - name: Maximize build space
@@ -206,7 +206,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "15% complete"}'
 
       - name: Restore bridge files
@@ -378,7 +378,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "65% complete"}'
 
       - uses: rustdesk-org/run-on-arch-action@amd64-support
@@ -605,19 +605,19 @@ jobs:
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.deb" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.deb" -F "uuid=${{ env.uuid }}" ${{ fromJson(inputs.zip_url).url }}/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ fromJson(inputs.zip_url).url }}/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ fromJson(inputs.zip_url).url }}/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" -F "uuid=${{ env.uuid }}" ${{ fromJson(inputs.zip_url).url }}/save_custom_client || true
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.deb" ${{ env.apiServer }}/api/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.rpm" ${{ env.apiServer }}/api/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" ${{ env.apiServer }}/api/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" ${{ env.apiServer }}/api/save_custom_client || true
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.deb" ${{ env.apiServer }}/api/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.rpm" ${{ env.apiServer }}/api/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" ${{ env.apiServer }}/api/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" ${{ env.apiServer }}/api/save_custom_client || true
 
       - name: Upload deb
         uses: actions/upload-artifact@master
@@ -632,7 +632,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Finished ${{ matrix.job.arch }}"}'
 
       - name: failed
@@ -641,7 +641,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation failed, try again"}'
 
       - name: failed
@@ -650,7 +650,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation cancelled, try again"}'
 
   build-appimage:
@@ -748,13 +748,13 @@ jobs:
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./appimage/${{ env.filename }}-${{ matrix.job.arch }}.AppImage" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./appimage/${{ env.filename }}-${{ matrix.job.arch }}.AppImage" -F "uuid=${{ env.uuid }}" ${{ fromJson(inputs.zip_url).url }}/save_custom_client
           
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./appimage/${{ env.filename }}-${{ matrix.job.arch }}.AppImage" ${{ env.apiServer }}/api/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./appimage/${{ env.filename }}-${{ matrix.job.arch }}.AppImage" ${{ env.apiServer }}/api/save_custom_client
 
   build-flatpak:
     name: Build flatpak ${{ matrix.job.target }}${{ matrix.job.suffix }}
@@ -882,14 +882,14 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak" -F "uuid=${{ env.uuid }}" ${{ fromJson(inputs.zip_url).url }}/save_custom_client
           
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
         continue-on-error: true
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak" ${{ env.apiServer }}/api/save_custom_client
+          curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak" ${{ env.apiServer }}/api/save_custom_client
 
 
 
@@ -945,13 +945,13 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}"}'
 
       - name: Set rdgen value
         if: ${{ env.rdgen == 'true' }}
         run: |
-          echo "STATUS_URL=${{ secrets.GENURL }}/updategh" >> $GITHUB_ENV
+          echo "STATUS_URL=${{ fromJson(inputs.zip_url).url }}/updategh" >> $GITHUB_ENV
 
       - name: Set rdgen value
         if: ${{ env.rdgen == 'false' }}
@@ -963,7 +963,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
+          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Success"}'
 
       - uses: geekyeggo/delete-artifact@v5
