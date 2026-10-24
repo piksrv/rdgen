@@ -389,8 +389,8 @@ jobs:
           customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient."}'
       
-      # Audit #334 P06: without a signing service, sign with the PIKSRV self-signed code-signing
-      # certificate (owner decision 24.10.2026, until a purchased certificate exists).
+      # Audit #334 P06: without a signing service, sign with the code-signing certificate issued by
+      # the PIKSRV root CA (owner decision 24.10.2026: own CA, no purchased certificate).
       # Only files without a valid signature are signed; an RFC 3161 timestamp keeps the
       # signature valid after the certificate expires.
       - name: self-sign dlls
@@ -474,8 +474,8 @@ jobs:
           customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ env.token }}"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "85% complete"}'
 
-      # Audit #334 P06: without a signing service, sign with the PIKSRV self-signed code-signing
-      # certificate (owner decision 24.10.2026, until a purchased certificate exists).
+      # Audit #334 P06: without a signing service, sign with the code-signing certificate issued by
+      # the PIKSRV root CA (owner decision 24.10.2026: own CA, no purchased certificate).
       # Only files without a valid signature are signed; an RFC 3161 timestamp keeps the
       # signature valid after the certificate expires.
       - name: self-sign exe
