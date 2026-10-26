@@ -549,10 +549,81 @@ jobs:
         run: |
           curl -i --fail-with-body -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" ${{ env.apiServer }}/api/save_custom_client
 
-      # Audit #334 P06: check the delivered file the way a Windows host sees it (Authenticode)
-      # and prove it installs and uninstalls on a clean x64 host (x86 build under WOW64).
+      # Codex audit #447: an explicit signature acceptance, separate from the install smoke.
+      # The runner does not trust the PIKSRV root, so Windows reports UnknownError for a
+      # correct signature; that status is accepted only when the signer chain builds to
+      # the pinned PIKSRV Root CA, the leaf is a code-signing certificate and an RFC 3161
+      # timestamp is present. A tampered copy must report HashMismatch.
+      # Runs after delivery and does not block it; a failure is a red step in the log.
+      - name: verify signature (pinned PIKSRV root)
+        if: ${{ env.SIGN_BASE_URL == '' }}
+        continue-on-error: true
+        shell: pwsh
+        env:
+          PIKSRV_ROOT_PEM: |
+            -----BEGIN CERTIFICATE-----
+            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
+            rXaQo0s=
+            -----END CERTIFICATE-----
+          PIKSRV_ROOT_SHA1: 1327EF1D404A06A82199CE5AF88018DE27CD616E
+        run: |
+          $exe = (Resolve-Path "./SignOutput/${{ env.filename }}.exe").Path
+          $sig = Get-AuthenticodeSignature $exe
+          Write-Host "authenticode status=$($sig.Status) message=$($sig.StatusMessage)"
+          if (-not $sig.SignerCertificate) { throw "signature: file is not signed" }
+          if ($sig.Status -notin 'Valid', 'UnknownError') { throw "signature: unexpected status $($sig.Status)" }
+          if (-not $sig.TimeStamperCertificate) { throw "signature: no RFC 3161 timestamp" }
+          $leaf = $sig.SignerCertificate
+          if ($leaf.EnhancedKeyUsageList.ObjectId -notcontains '1.3.6.1.5.5.7.3.3') { throw "signature: signer $($leaf.Subject) is not a code-signing certificate" }
+          $root = [Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem($env:PIKSRV_ROOT_PEM)
+          if ($root.Thumbprint -ne $env:PIKSRV_ROOT_SHA1) { throw "signature: pinned root PEM does not match its thumbprint" }
+          $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
+          $chain.ChainPolicy.TrustMode = [Security.Cryptography.X509Certificates.X509ChainTrustMode]::CustomRootTrust
+          [void]$chain.ChainPolicy.CustomTrustStore.Add($root)
+          $chain.ChainPolicy.RevocationMode = [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+          if (-not $chain.Build($leaf)) { throw "signature: chain to PIKSRV Root CA failed: $(($chain.ChainStatus | ForEach-Object Status) -join ', ')" }
+          $top = $chain.ChainElements[$chain.ChainElements.Count - 1].Certificate
+          if ($top.Thumbprint -ne $root.Thumbprint) { throw "signature: chain ends at $($top.Subject), not the pinned root" }
+          if ($sig.Status -eq 'UnknownError') { Write-Host "signature: UnknownError = PIKSRV root is not in this runner's Windows trust store (expected on GitHub runners)" }
+          $tampered = Join-Path $env:RUNNER_TEMP "tampered.exe"
+          Copy-Item $exe $tampered -Force
+          $bytes = [IO.File]::ReadAllBytes($tampered); $bytes[1024] = $bytes[1024] -bxor 0xFF; [IO.File]::WriteAllBytes($tampered, $bytes)
+          $tsig = Get-AuthenticodeSignature $tampered
+          Remove-Item $tampered -Force
+          if ($tsig.Status -ne 'HashMismatch') { throw "signature: tampered copy reported $($tsig.Status), expected HashMismatch" }
+          Write-Host "signature: PASS signer=$($leaf.Subject) root=$($top.Subject) timestamp=$($sig.TimeStamperCertificate.Subject); tampered copy -> HashMismatch"
+
+      # Audit #334 P06: prove the delivered file installs and uninstalls on a clean x64 host
+      # (x86 build under WOW64). Signature acceptance is the separate step above.
       # Runs after delivery and does not block it; the result is in this step's log.
-      - name: verify signature and install smoke
+      - name: install smoke
         continue-on-error: true
         shell: pwsh
         run: |
