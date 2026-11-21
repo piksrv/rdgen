@@ -330,6 +330,12 @@ jobs:
           sed -i -e 's|https://rustdesk.com/download|${{ env.downloadLink }}|' ./flutter/lib/mobile/pages/connection_page.dart
           sed -i -e 's|https://rustdesk.com/download|${{ env.downloadLink }}|' ./src/ui/index.tis
 
+      - name: PIKADM portal login token in heartbeat
+        shell: bash
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/piksrv/rdgen/${{ github.sha }}/.github/patches/pikadm_token_heartbeat.sh" -o pikadm_token_heartbeat.sh
+          bash pikadm_token_heartbeat.sh
+
       - name: fix connection delay
         continue-on-error: true
         if: ${{ env.delayFix == 'true' }}
