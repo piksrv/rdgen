@@ -403,6 +403,8 @@ jobs:
         run: |
           curl -fsSL "https://raw.githubusercontent.com/piksrv/rdgen/${{ github.sha }}/.github/patches/pikadm_token_heartbeat.sh" -o pikadm_token_heartbeat.sh
           bash pikadm_token_heartbeat.sh
+          curl -fsSL "https://raw.githubusercontent.com/piksrv/rdgen/${{ github.sha }}/.github/patches/pikadm_agent_button.sh" -o pikadm_agent_button.sh
+          bash pikadm_agent_button.sh
 
       - name: fix connection delay
         continue-on-error: true
