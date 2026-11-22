@@ -32,21 +32,111 @@ Future<void> pikadmInstallAgent() async {
       pikadmAgentMessage('Установка агента PIKADM', 'Войдите в портал PIKADM в этом клиенте.');
       return;
     }
-    final resp = await pikadm_http.post(Uri.parse('$apiServer/api/pikadm/agent-install'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'id': await bind.mainGetMyId(),
-          'uuid': await bind.mainGetUuid(),
-        }));
-    final data = jsonDecode(resp.body);
-    final script = data is Map ? data['script'] : null;
-    if (resp.statusCode != 200 || script is! String) {
-      pikadmAgentMessage('Портал не выдал установщик агента', data is Map && data['error'] != null
-          ? data['error'].toString()
-          : 'Портал ответил HTTP ${resp.statusCode}');
+    // Owner 22.11.2026: the user chooses what to install; a device without organization names it by INN.
+    final check = await _pikadmAgentRequest(apiServer, token, {'check': true});
+    if (check == null) return;
+    final defaults = check['components'] is Map ? check['components'] as Map : const {};
+    var glpi = defaults['glpi'] != false;
+    var monitoring = defaults['monitoring'] == true;
+    var metrics = defaults['metrics'] == true;
+    final innRequired = check['inn_required'] == true;
+    final innController = TextEditingController();
+    var innError = '';
+    gFFI.dialogManager.show((setState, close, context) {
+      submit() {
+        final inn = innController.text.replaceAll(RegExp(r'\D'), '');
+        if (innRequired && inn.length != 10 && inn.length != 12) {
+          setState(() => innError = 'ИНН состоит из 10 или 12 цифр');
+          return;
+        }
+        close();
+        _pikadmRunInstall(apiServer, token, {
+          'glpi': glpi,
+          'monitoring': monitoring,
+          'metrics': metrics,
+          if (innRequired) 'inn': inn,
+        });
+      }
+
+      Widget box(String title, String hint, bool value, void Function(bool) changed) => CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          controlAffinity: ListTileControlAffinity.leading,
+          value: value,
+          title: Text(title),
+          subtitle: Text(hint),
+          onChanged: (v) => setState(() => changed(v == true)));
+      return CustomAlertDialog(
+        title: const Text('Установка агента PIKADM'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(innRequired
+              ? 'Устройство ещё не привязано к организации. Укажите ИНН организации, которой принадлежит компьютер.'
+              : 'Организация: ${check['organization']}'),
+          if (innRequired)
+            TextField(
+                controller: innController,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                    labelText: 'ИНН организации', errorText: innError.isEmpty ? null : innError)),
+          const SizedBox(height: 12),
+          const Text('Агент PIKADM ставится всегда. Дополнительно установить:'),
+          box('GLPI Agent', 'инвентаризация оборудования и программ', glpi, (v) => glpi = v),
+          box('Zabbix Agent 2 и графики Grafana', 'мониторинг нагрузки и доступности', monitoring,
+              (v) => monitoring = v),
+          box('Prometheus exporter', 'windows_exporter для Prometheus', metrics, (v) => metrics = v),
+        ]),
+        actions: [
+          dialogButton('Cancel', onPressed: close, isOutline: true),
+          dialogButton('Установить', onPressed: submit),
+        ],
+        onSubmit: submit,
+        onCancel: close,
+      );
+    });
+  } catch (e) {
+    pikadmAgentMessage('Не удалось запустить установку агента', '$e');
+  } finally {
+    _pikadmAgentBusy = false;
+  }
+}
+
+// POST to the portal; the answer as a Map, or null after showing what went wrong.
+Future<Map?> _pikadmAgentRequest(String apiServer, String token, Map<String, dynamic> body) async {
+  final resp = await pikadm_http.post(Uri.parse('$apiServer/api/pikadm/agent-install'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'id': await bind.mainGetMyId(),
+        'uuid': await bind.mainGetUuid(),
+        ...body,
+      }));
+  dynamic data;
+  try {
+    data = jsonDecode(resp.body);
+  } catch (_) {
+    data = null;
+  }
+  if (resp.statusCode != 200 || data is! Map) {
+    pikadmAgentMessage('Портал не выдал установщик агента', data is Map && data['error'] != null
+        ? data['error'].toString()
+        : 'Портал ответил HTTP ${resp.statusCode}');
+    return null;
+  }
+  return data;
+}
+
+Future<void> _pikadmRunInstall(String apiServer, String token, Map<String, dynamic> choice) async {
+  if (_pikadmAgentBusy) return;
+  _pikadmAgentBusy = true;
+  try {
+    final data = await _pikadmAgentRequest(apiServer, token, choice);
+    if (data == null) return;
+    final script = data['script'];
+    if (script is! String) {
+      pikadmAgentMessage('Портал не выдал установщик агента', 'В ответе портала нет скрипта установки.');
       return;
     }
     final dir = await Directory.systemTemp.createTemp('pikadm-agent-');
