@@ -14,24 +14,70 @@ cat >> "$page" <<'EOF'
 // PIKADM: install the PIKADM agent on this computer (see .github/patches/pikadm_agent_button.sh in rdgen).
 Widget pikadmAgentAction() {
   if (!Platform.isWindows) return const SizedBox.shrink();
+  // Owner 22.11.2026: four compact buttons — install, reinstall, find installed agents, remove.
+  Widget button(String label, IconData icon, VoidCallback onPressed) => Padding(
+      padding: const EdgeInsets.only(right: 8, top: 6),
+      child: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              textStyle: const TextStyle(fontSize: 13)),
+          onPressed: onPressed,
+          icon: Icon(icon, size: 16),
+          label: Text(label)));
   return Obx(() => Offstage(
       offstage: gFFI.userModel.userName.value.isEmpty,
-      child: _Button('Установить PIKADM Agent', () => pikadmInstallAgent())));
+      child: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Агент PIKADM'),
+            Wrap(children: [
+              button('Установить', Icons.download_outlined, () => pikadmInstallAgent('install')),
+              button('Переустановить', Icons.refresh, () => pikadmInstallAgent('reinstall')),
+              button('Найти установленные', Icons.search, () => pikadmAgentTool('discover')),
+              button('Удалить', Icons.delete_outline, () => pikadmAgentTool('remove')),
+            ]),
+          ]))));
 }
 
 bool _pikadmAgentBusy = false;
 
-Future<void> pikadmInstallAgent() async {
-  // One click, one invitation: repeated clicks while the request runs are ignored.
+Future<List<String>?> _pikadmSession() async {
+  final apiServer = await bind.mainGetApiServer();
+  final token = bind.mainGetLocalOption(key: 'access_token');
+  if (apiServer.trim().isEmpty || token.isEmpty) {
+    pikadmAgentMessage('Агент PIKADM', 'Войдите в портал PIKADM в этом клиенте.');
+    return null;
+  }
+  return [apiServer, token];
+}
+
+// «Найти установленные» and «Удалить»: no invitation; the portal answers the public installer in read-only
+// discovery mode or with its own menu, where removal is chosen and confirmed on this computer.
+Future<void> pikadmAgentTool(String mode) async {
   if (_pikadmAgentBusy) return;
   _pikadmAgentBusy = true;
   try {
-    final apiServer = await bind.mainGetApiServer();
-    final token = bind.mainGetLocalOption(key: 'access_token');
-    if (apiServer.trim().isEmpty || token.isEmpty) {
-      pikadmAgentMessage('Установка агента PIKADM', 'Войдите в портал PIKADM в этом клиенте.');
-      return;
-    }
+    final session = await _pikadmSession();
+    if (session == null) return;
+    await _pikadmRunInstall(session[0], session[1], {'mode': mode}, nested: true);
+  } catch (e) {
+    pikadmAgentMessage('Не удалось запустить PowerShell', '$e');
+  } finally {
+    _pikadmAgentBusy = false;
+  }
+}
+
+Future<void> pikadmInstallAgent(String mode) async {
+  // One click, one invitation: repeated clicks while the request runs are ignored.
+  if (_pikadmAgentBusy) return;
+  _pikadmAgentBusy = true;
+  final reinstall = mode == 'reinstall';
+  try {
+    final session = await _pikadmSession();
+    if (session == null) return;
+    final apiServer = session[0];
+    final token = session[1];
     // Owner 22.11.2026: the user chooses what to install; a device without organization names it by INN.
     final check = await _pikadmAgentRequest(apiServer, token, {'check': true});
     if (check == null) return;
@@ -49,8 +95,13 @@ Future<void> pikadmInstallAgent() async {
           setState(() => innError = 'ИНН состоит из 10 или 12 цифр');
           return;
         }
+        if (reinstall && !glpi && !monitoring) {
+          setState(() => innError = 'Для переустановки выберите GLPI или Zabbix');
+          return;
+        }
         close();
         _pikadmRunInstall(apiServer, token, {
+          'mode': mode,
           'glpi': glpi,
           'monitoring': monitoring,
           'metrics': metrics,
@@ -67,7 +118,7 @@ Future<void> pikadmInstallAgent() async {
           subtitle: Text(hint),
           onChanged: (v) => setState(() => changed(v == true)));
       return CustomAlertDialog(
-        title: const Text('Установка агента PIKADM'),
+        title: Text(reinstall ? 'Переустановка агента PIKADM' : 'Установка агента PIKADM'),
         content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(innRequired
               ? 'Устройство ещё не привязано к организации. Укажите ИНН организации, которой принадлежит компьютер.'
@@ -80,15 +131,18 @@ Future<void> pikadmInstallAgent() async {
                 decoration: InputDecoration(
                     labelText: 'ИНН организации', errorText: innError.isEmpty ? null : innError)),
           const SizedBox(height: 12),
-          const Text('Агент PIKADM ставится всегда. Дополнительно установить:'),
+          Text(reinstall
+              ? 'Выбранные агенты будут удалены и поставлены заново (с резервной копией настроек):'
+              : 'Агент PIKADM ставится всегда. Дополнительно установить:'),
           box('GLPI Agent', 'инвентаризация оборудования и программ', glpi, (v) => glpi = v),
           box('Zabbix Agent 2 и графики Grafana', 'мониторинг нагрузки и доступности', monitoring,
               (v) => monitoring = v),
           box('Prometheus exporter', 'windows_exporter для Prometheus', metrics, (v) => metrics = v),
+          if (!innRequired && innError.isNotEmpty) Text(innError, style: const TextStyle(color: Colors.red)),
         ]),
         actions: [
           dialogButton('Cancel', onPressed: close, isOutline: true),
-          dialogButton('Установить', onPressed: submit),
+          dialogButton(reinstall ? 'Переустановить' : 'Установить', onPressed: submit),
         ],
         onSubmit: submit,
         onCancel: close,
@@ -128,9 +182,13 @@ Future<Map?> _pikadmAgentRequest(String apiServer, String token, Map<String, dyn
   return data;
 }
 
-Future<void> _pikadmRunInstall(String apiServer, String token, Map<String, dynamic> choice) async {
-  if (_pikadmAgentBusy) return;
-  _pikadmAgentBusy = true;
+Future<void> _pikadmRunInstall(String apiServer, String token, Map<String, dynamic> choice,
+    {bool nested = false}) async {
+  if (!nested) {
+    if (_pikadmAgentBusy) return;
+    _pikadmAgentBusy = true;
+  }
+  final mode = choice['mode'] ?? 'install';
   try {
     final data = await _pikadmAgentRequest(apiServer, token, choice);
     if (data == null) return;
@@ -164,13 +222,19 @@ Future<void> _pikadmRunInstall(String apiServer, String token, Map<String, dynam
               : 'PowerShell: ${detail.length > 400 ? detail.substring(0, 400) : detail}');
       return;
     }
-    pikadmAgentMessage('Установка агента PIKADM',
-        'Установщик запущен в отдельном окне PowerShell от имени администратора. '
-        'Дождитесь «PIKADM: готово» — устройство появится в портале с агентом.');
+    pikadmAgentMessage(
+        'Агент PIKADM',
+        mode == 'discover'
+            ? 'Список агентов на этом компьютере открыт в отдельном окне PowerShell.'
+            : mode == 'remove'
+                ? 'В отдельном окне PowerShell открыто меню установщика: 4 — удалить все агенты, '
+                    '5 — удалить определённый. Удаление подтверждается там же.'
+                : 'Установщик запущен в отдельном окне PowerShell от имени администратора. '
+                    'Дождитесь «PIKADM: готово» — устройство появится в портале с агентом.');
   } catch (e) {
-    pikadmAgentMessage('Не удалось запустить установку агента', '$e');
+    pikadmAgentMessage('Не удалось запустить PowerShell', '$e');
   } finally {
-    _pikadmAgentBusy = false;
+    if (!nested) _pikadmAgentBusy = false;
   }
 }
 
