@@ -36,6 +36,7 @@ Widget pikadmAgentAction() {
               button('Переустановить', Icons.refresh, () => pikadmInstallAgent('reinstall')),
               button('Найти установленные', Icons.search, () => pikadmAgentTool('discover')),
               button('Удалить', Icons.delete_outline, () => pikadmAgentTool('remove')),
+              button('Учётные записи', Icons.manage_accounts_outlined, () => pikadmAccountsConsent()),
             ]),
           ]))));
 }
@@ -229,6 +230,11 @@ Future<void> _pikadmRunInstall(String apiServer, String token, Map<String, dynam
             : mode == 'remove'
                 ? 'В отдельном окне PowerShell открыто меню установщика: 4 — удалить все агенты, '
                     '5 — удалить определённый. Удаление подтверждается там же.'
+                : mode == 'accounts_allow' || mode == 'accounts_deny'
+                    ? (mode == 'accounts_allow'
+                        ? 'Разрешение запускается в отдельном окне PowerShell. '
+                        : 'Запрет запускается в отдельном окне PowerShell. ') +
+                        'Дождитесь строки «PIKADM: …» в нём; портал увидит изменение при следующем обмене агента.'
                 : 'Установщик запущен в отдельном окне PowerShell от имени администратора. '
                     'Дождитесь «PIKADM: готово» — устройство появится в портале с агентом.');
   } catch (e) {
@@ -236,6 +242,33 @@ Future<void> _pikadmRunInstall(String apiServer, String token, Map<String, dynam
   } finally {
     if (!nested) _pikadmAgentBusy = false;
   }
+}
+
+// Owner 23.11.2026: the local consent for PIKADM-managed accounts (managed-accounts-allowed), switched here
+// on the computer itself through UAC; the portal cannot set it remotely.
+void pikadmAccountsConsent() {
+  gFFI.dialogManager.show((setState, close, context) {
+    void run(String mode) {
+      close();
+      pikadmAgentTool(mode);
+    }
+
+    return CustomAlertDialog(
+      title: const Text('Учётные записи PIKADM'),
+      content: const SelectableText(
+          'Разрешить порталу создавать на этом компьютере учётные записи PIKADM для специалистов '
+          '(с ротацией паролей и подтверждением ключом доступа)? Решение принимается здесь, на компьютере, '
+          'с подтверждением администратора Windows; удалённо его включить нельзя. Портал увидит изменение '
+          'при следующем обмене агента.'),
+      actions: [
+        dialogButton('Cancel', onPressed: close, isOutline: true),
+        dialogButton('Запретить', onPressed: () => run('accounts_deny'), isOutline: true),
+        dialogButton('Разрешить', onPressed: () => run('accounts_allow')),
+      ],
+      onSubmit: () => run('accounts_allow'),
+      onCancel: close,
+    );
+  });
 }
 
 // A dialog, not a toast: the owner pressed the button and saw nothing (22.11.2026).
